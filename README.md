@@ -138,8 +138,9 @@ By category:
 Decision source: 129 of 132 attempted decisions came from live Groq calls
 (`decision_source: "groq"`); the remaining 3 hit a transient malformed/empty
 response and fell back safely to the deterministic rule-based chooser
-instead of executing anything unvalidated — see [What broke](#what-broke-and-how-i-got-out-of-it),
-point 5. 7 cases were filtered out before reaching the LLM at all
+instead of executing anything unvalidated — see
+[What broke, and how I got out of it](#what-broke-and-how-i-got-out-of-it)
+below. 7 cases were filtered out before reaching the LLM at all
 (`decision_source: "diagnosis"` — not actionable, e.g. a checkout still
 within its normal completion window).
 
@@ -221,80 +222,21 @@ publish new results.
 
 ## What broke, and how I got out of it
 
-**1. Bounding an LLM to a safe action space.** The core risk in this system
-isn't "does the model give a plausible answer" — it's "can the model ever
-cause an action outside what's allowed." `agent/llm_client.py` constrains
-Groq's output to a fixed 8-action enum (`instant_retry`, `retry_with_delay`,
-`escalate_to_human`, etc.) via a strict JSON-schema contract, but a schema
-alone doesn't guarantee safety: a malformed response, a hallucinated action
-string, or a dropped API call all needed to fail *closed*, not open. Solved
-by making `decide()` a single choke point — any parse failure, schema
-mismatch, or exception falls through to a deterministic rule-based chooser
-rather than propagating an unvalidated action, and every decision (LLM or
-fallback) still passes through `policy.check_stopping_rules()` afterward as
-a second, independent gate. The model proposes, code disposes — two layers,
-not one, because a single validation layer is one bug away from an
-unbounded action executing on real money.
+Three things broke building this, worth being honest about.
 
-**2. Simulating a multi-day recovery timeline inside one synchronous batch
-run.** Real recovery workflows span days — a retry-with-delay might wait 6
-hours, a receivable reminder 72 — but the batch needed to run in seconds for
-the pipeline to be testable and demoable. `run_batch.py` solves this by
-advancing a per-case simulated clock (`sim_now`) forward by each
-intervention's cooldown period after every attempt, rather than using
-wall-clock time or a real scheduler. This meant the stopping-rule engine
-(max attempts, cooldown-elapsed checks) had to be written against simulated
-elapsed time from the start, and the random-outcome simulator seeded
-independently per case so a fixed batch seed reproduces byte-identical
-results regardless of how many cases are processed or in what order —
-non-trivial once diagnosis, LLM decision, and outcome simulation are all
-pulling from state that has to stay deterministic under concurrent-in-spirit
-but sequential-in-execution processing.
+**First — the diagnosis stage.** Every individual component was correct in
+isolation, but the pipeline still silently misclassified 21 of 80
+abandoned-checkout cases because of an ambiguous timestamp — caught by a
+batch-level sanity check, not a crash.
 
-**3. A diagnosis stage where every component was individually correct and
-the output was still wrong.** The abandoned-checkout root-cause classifier
-depends on knowing *when* a checkout became at-risk — but that's not one
-unambiguous timestamp, it's a modeling decision (is it "when checkout
-opened" or "when abandonment was detected"?). The classifier, the policy
-gate, and the executor were each independently correct against their own
-inputs, yet the system silently misclassified 21 of 80 cases as "still in
-progress" because the diagnosis stage was fed the wrong side of that
-ambiguity. Unit-testing each component in isolation wouldn't have caught it
-— the bug only existed in how stages composed. It surfaced through a
-batch-level sanity check (one category's recovered amount at exactly
-`0.0`), which is now a lesson baked into how I validate multi-stage
-pipelines: check invariants across stage boundaries, not just within each
-stage. Fixed by diagnosing explicitly against `checkout_opened_at`, and
-pinned both branches with regression tests in `tests/test_diagnose.py` so a
-future refactor can't reintroduce the same silent zero.
+**Second — deployment.** The live Space is the fourth platform I tried.
+Fly.io wanted a card, Koyeb hit a billing edge case, and my first Hugging
+Face attempt accidentally got a paid GPU tier attached and locked behind a
+subscription to undo. I rebuilt the dashboard as a static export
+specifically so it could run on Spaces' genuinely free static tier.
 
-**4. Free hosting turned out to be its own reliability problem.** The live
-demo above is the fourth platform tried. Fly.io requires a card even for its
-free tier. Koyeb worked but sat in an awkward spot mid-acquisition. The
-first Hugging Face attempt picked Docker as the SDK, which silently attached
-a paid ZeroGPU hardware tier that then required a PRO subscription just to
-*downgrade* — a dead end with no free path out except abandoning that Space
-entirely. The fix wasn't a better platform, it was a different architecture:
-`dashboard/export_static.py` bakes a batch's results into static JSON files
-served next to a copy of the same dashboard UI, so the whole thing runs on
-Hugging Face's genuinely free Static Spaces tier with zero backend and zero
-billing risk — the interactive FastAPI version (`webapp/`) still exists for
-local use, this is a deliberately reduced deployment target, not a
-downgrade of the actual system.
-
-**5. A model I depended on got deprecated mid-build, then returned
-malformed output after the fix.** The Groq model `agent/llm_client.py`
-originally hardcoded stopped existing on the account partway through —
-every LLM call was silently falling back to rule-based decisions with a 404
-buried in the exception message, not visible unless you went looking for
-it. Fixed by querying the account's actual available models rather than
-guessing again, and switching to `openai/gpt-oss-120b`. That surfaced a
-second, subtler failure: a handful of calls came back with truncated or
-non-JSON content (`Unterminated string...`, `Expecting value...`). Rather
-than just letting the existing fallback quietly absorb it, hardened the
-call itself — `response_format={"type": "json_object"}` to force strict
-JSON instead of occasionally prose-wrapped output, and more `max_tokens`
-headroom to stop responses cutting off mid-string. A small number of calls
-still fail and fall back safely even after hardening, which is the
-fallback design doing its job, not a bug I chased away — the visible
-`invalid_output_fallback` tag on those rows in the audit trail is the point.
+**Third — the Groq model I'd hardcoded got deprecated overnight**, and even
+after switching models, some calls came back truncated or non-JSON. I
+hardened the client with strict JSON output mode and more token headroom —
+a small number of calls still fall back safely, which is that design
+proving itself.
