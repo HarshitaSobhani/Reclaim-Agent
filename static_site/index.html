@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reclaim</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">₹</span>
+        <div>
+          <div class="brand-title">Reclaim</div>
+          <div class="brand-sub">AI Revenue Recovery &middot; Razorpay Buildathon Track 3</div>
+        </div>
+      </div>
+
+      <form id="run-form" class="run-form">
+        <label>
+          <span>Batch size</span>
+          <input type="number" id="run-n" value="80" min="1" max="500" />
+        </label>
+        <label>
+          <span>Seed</span>
+          <input type="number" id="run-seed" value="42" min="0" />
+        </label>
+        <button type="submit" id="run-btn">
+          <span class="btn-label">Run new batch</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+      </form>
+    </header>
+
+    <main id="app-main" class="main" hidden>
+      <section class="stats">
+        <div class="stat-card">
+          <div class="stat-label">Total at risk</div>
+          <div class="stat-value" id="stat-at-risk">–</div>
+        </div>
+        <div class="stat-card accent-good">
+          <div class="stat-label">Total recovered</div>
+          <div class="stat-value" id="stat-recovered">–</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Recovery rate</div>
+          <div class="stat-value" id="stat-rate">–</div>
+        </div>
+        <div class="stat-card accent-warn">
+          <div class="stat-label">Escalated / skipped</div>
+          <div class="stat-value" id="stat-escalated">–</div>
+        </div>
+      </section>
+
+      <section class="panels">
+        <div class="panel">
+          <h2>Recovery by category</h2>
+          <div id="category-chart" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Case status</h2>
+          <div id="status-chart" class="chart"></div>
+        </div>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="table-toolbar">
+          <h2>Audit trail</h2>
+          <div class="toolbar-controls">
+            <input type="search" id="search" placeholder="Search case id or root cause…" />
+            <select id="filter-category">
+              <option value="">All categories</option>
+            </select>
+            <select id="filter-status">
+              <option value="">All statuses</option>
+            </select>
+            <select id="sort-by">
+              <option value="timestamp">Sort: time</option>
+              <option value="amount_desc">Sort: amount (high–low)</option>
+              <option value="amount_asc">Sort: amount (low–high)</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="case-table">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Category</th>
+                <th>Amount</th>
+                <th>Root cause</th>
+                <th>Intervention</th>
+                <th>Source</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="case-table-body"></tbody>
+          </table>
+        </div>
+        <div id="empty-state" class="empty-state" hidden>No cases match your filters.</div>
+      </section>
+    </main>
+
+    <div id="loading-state" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Loading batch results…</p>
+      <button id="seed-run-btn" hidden>Run first batch</button>
+    </div>
+  </div>
+
+  <div id="drawer-overlay" class="drawer-overlay" hidden>
+    <aside id="drawer" class="drawer">
+      <button id="drawer-close" class="drawer-close" aria-label="Close">&times;</button>
+      <div id="drawer-content"></div>
+    </aside>
+  </div>
+
+  <script>window.RECLAIM_STATIC = true;</script>
+  <script src="app.js"></script>
+</body>
+</html>
