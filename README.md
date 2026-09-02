@@ -120,30 +120,44 @@ escalate_to_human, no_action
 - Minimum amount threshold (₹200) below which we don't auto-recover
 - `do_not_contact` customers only ever get `no_action`, never contacted
 
-## Results on a sample batch (seed 42, n=80, rule-based fallback — no API key)
+## Results on a sample batch (seed 42, n=80, live on Groq — see the demo link above)
 
 ```
 Total at risk:      ₹9,38,385
-Total recovered:    ₹6,44,917
-Recovery rate:      68.7%
+Total recovered:    ₹5,64,922
+Recovery rate:      60.2%
+Status breakdown:   51 recovered, 15 escalated, 14 skipped
 
 By category:
-  failed_payment       81.2% recovered  (39 cases, ₹2,14,968 at risk)
-  overdue_receivable   71.8% recovered  (11 cases, ₹5,50,444 at risk)
   failed_mandate       90.4% recovered  ( 9 cases, ₹  51,992 at risk)
-  abandoned_checkout   23.1% recovered  (21 cases, ₹1,20,981 at risk)
+  failed_payment       70.5% recovered  (39 cases, ₹2,14,968 at risk)
+  overdue_receivable   64.6% recovered  (11 cases, ₹5,50,444 at risk)
+  abandoned_checkout    9.1% recovered  (21 cases, ₹1,20,981 at risk)
 ```
+
+Decision source: 129 of 132 attempted decisions came from live Groq calls
+(`decision_source: "groq"`); the remaining 3 hit a transient malformed/empty
+response and fell back safely to the deterministic rule-based chooser
+instead of executing anything unvalidated — see [What broke](#what-broke-and-how-i-got-out-of-it),
+point 5. 7 cases were filtered out before reaching the LLM at all
+(`decision_source: "diagnosis"` — not actionable, e.g. a checkout still
+within its normal completion window).
 
 **Honesty note on these numbers**: success/failure per attempt is simulated
 via a per-intervention success-rate table in `agent/executor.py`
 (`simulate_outcome`), not a live payment gateway — there's no way to measure
 a *real* recovery rate without a live merchant account. What these numbers
 do demonstrate honestly: the diagnosis routes each case to a plausible
-intervention, the stopping rules actually cap retries and respect
-opt-outs (see `status_breakdown.escalated`/`skipped` above — these aren't
-zero), and the pipeline runs deterministically end to end from raw event to
-audited dollar amount. Swap `simulate_outcome` for a real Razorpay
-retry/webhook response and the rest of the pipeline is unchanged.
+intervention, the intervention choice itself now comes from a live LLM call
+rather than a hardcoded mapping, the stopping rules actually cap retries and
+respect opt-outs (`status_breakdown.escalated`/`skipped` above — these
+aren't zero), and the pipeline runs end to end from raw event to audited
+dollar amount. Swap `simulate_outcome` for a real Razorpay retry/webhook
+response and the rest of the pipeline is unchanged. Because Groq's live
+decisions aren't perfectly deterministic run-to-run (unlike the rule-based
+fallback path), re-running this exact batch will reproduce similar but not
+byte-identical numbers — the live demo always reflects whatever the most
+recent run actually decided.
 
 ## Running it
 
